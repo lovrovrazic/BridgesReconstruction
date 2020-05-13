@@ -9,6 +9,7 @@ import shapefile
 #import index
 from scipy.spatial.kdtree import KDTree
 import numpy as np
+import pyrr
 
 def writePointsToLasFile(points):
     # inFile = File("/path/to/lasfile", mode="r")
@@ -32,8 +33,8 @@ def writePointsToLasFile(points):
     #hdr = laspy.header.Header()
 
     #outfile = laspy.file.File("data/out_example.las", mode="w", header=hdr)
-    outfile = laspy.file.File("data/out_example.las", mode="w", header=inFile.header)
-    allx = np.array(points[0])  # Four Points
+    outfile = laspy.file.File("data/out_brudge_bbox_0.las", mode="w", header=inFile.header)
+    allx = np.array(points[0])
     ally = np.array(points[1])
     allz = np.array(points[2])
 
@@ -41,8 +42,8 @@ def writePointsToLasFile(points):
     ymin = np.floor(np.min(ally))
     zmin = np.floor(np.min(allz))
 
-    #outfile.header.offset = [xmin, ymin, zmin]
-    #outfile.header.scale = [1, 1, 1]
+    outfile.header.offset = [xmin, ymin, zmin]
+    outfile.header.scale = [1, 1, 1]
     #outfile.header.scale = [0.001, 0.001, 0.001]
 
     outfile.x = allx
@@ -136,21 +137,24 @@ def getPointsWithinDistance(points, x, y, z):
     return points_kept
 
 def getLocalMaxZ(points, path_point):
-    for z in np.arange(max_z, min_z - 1, -1):
+    print()
+    print("searching for z of:")
+    print("x: ", path_point[0])
+    print("y: ", path_point[1])
+    z_found = None
+    for z in np.arange(max_z, min_z - 1, -10):
         close_points = getPointsWithinDistance(points, path_point[0], path_point[1], z)
 
         if len(close_points[0]) > 5: # number of points inside radius
         #if close_points.tolist().count(True) > 50:
             #writePointsToLasFile(inFile.points[close_points])
             #print("z: ", z)
-            print()
-            print("x: ", path_point[0])
-            print("y: ", path_point[1])
-            print("z: ", (z-25)/100)
+            print("found z: ", (z-25)/100)
+            z_found = (z-25)/100
             #print("i have 20 points within 100 units")
             break
 
-    return None
+    return z_found
 
 print("Loading LAS file ...")
 inFile = File('data/TM_463_104.las', mode='r')
@@ -201,12 +205,40 @@ with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
             #exit()
 
             path_points = shape.points
-            for path_point in path_points:
-                z = getLocalMaxZ(points_in_bbox, path_point)
+            path_points_with_z = []
+
+            for i in range(len(path_points)):
+                path_points_with_z.append((path_points[i][0],
+                                           path_points[i][1],
+                                           getLocalMaxZ(points_in_bbox, path_points[i])
+                                           ))
 
             sirces = records[i][6]
             sirvoz = records[i][7]
             id = records[i][0]
+
+            for p0, p1 in zip(path_points_with_z[0:], path_points_with_z[1:]):
+                v0 = pyrr.vector3.create(p0[0], p0[1], p0[2])
+                v1 = pyrr.vector3.create(p1[0], p1[1], p1[2])
+                v_smer = v1-v0
+                v_smer_n = pyrr.vector.normalise(v_smer)
+
+                #rotate_90 = pyrr.Matrix33([[0.,-1.,0.],[1.,0.,0.],[0.,0.,1.]])
+                rotation_matrix_90_counterclockwise = pyrr.matrix33.create_from_z_rotation(np.pi/2)
+                v_smer_n_90_counterclockwise = rotation_matrix_90_counterclockwise * v_smer_n
+                new_point_on_left_edge = v0 + (v_smer_n_90_counterclockwise * (sirces/2))
+                new_point_on_left_edge[2] -= 5
+
+                rotation_matrix_90_clockwise = pyrr.matrix33.create_from_z_rotation(-np.pi/2)
+                v_smer_n_90_clockwise = rotation_matrix_90_clockwise * v_smer_n
+                new_point_on_right_edge = v0 + (v_smer_n_90_clockwise * (sirces/2))
+                new_point_on_right_edge[2] -= 5
+
+                new_points_betwen_edges = pyrr.vector.interpolate(v0, v1, 0.5)
+
+                new_point_on_path = v0 + (2 * v_smer_n)
+
+
 
             print()
             print("to je most tipa: ", tipobj_ces)
