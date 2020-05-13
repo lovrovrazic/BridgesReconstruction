@@ -10,6 +10,7 @@ import shapefile
 from scipy.spatial.kdtree import KDTree
 import numpy as np
 import pyrr
+from pyrr import Matrix33, Vector3
 
 def writePointsToLasFile(points):
     # inFile = File("/path/to/lasfile", mode="r")
@@ -33,7 +34,7 @@ def writePointsToLasFile(points):
     #hdr = laspy.header.Header()
 
     #outfile = laspy.file.File("data/out_example.las", mode="w", header=hdr)
-    outfile = laspy.file.File("data/out_brudge_bbox_0.las", mode="w", header=inFile.header)
+    outfile = laspy.file.File("data/out_brudge_underside.las", mode="w", header=inFile.header)
     allx = np.array(points[0])
     ally = np.array(points[1])
     allz = np.array(points[2])
@@ -217,28 +218,42 @@ with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
             sirvoz = records[i][7]
             id = records[i][0]
 
+            new_points_for_underside_of_bridge = []
+
             for p0, p1 in zip(path_points_with_z[0:], path_points_with_z[1:]):
-                v0 = pyrr.vector3.create(p0[0], p0[1], p0[2])
-                v1 = pyrr.vector3.create(p1[0], p1[1], p1[2])
-                v_smer = v1-v0
-                v_smer_n = pyrr.vector.normalise(v_smer)
 
-                #rotate_90 = pyrr.Matrix33([[0.,-1.,0.],[1.,0.,0.],[0.,0.,1.]])
-                rotation_matrix_90_counterclockwise = pyrr.matrix33.create_from_z_rotation(np.pi/2)
-                v_smer_n_90_counterclockwise = rotation_matrix_90_counterclockwise * v_smer_n
-                new_point_on_left_edge = v0 + (v_smer_n_90_counterclockwise * (sirces/2))
-                new_point_on_left_edge[2] -= 5
+                for j in np.arange(0.0, 1.0, 0.01):
 
-                rotation_matrix_90_clockwise = pyrr.matrix33.create_from_z_rotation(-np.pi/2)
-                v_smer_n_90_clockwise = rotation_matrix_90_clockwise * v_smer_n
-                new_point_on_right_edge = v0 + (v_smer_n_90_clockwise * (sirces/2))
-                new_point_on_right_edge[2] -= 5
+                    v0 = Vector3(p0)
+                    v1 = Vector3(p1)
+                    v_smer = v1-v0
+                    v_smer_n = Vector3(pyrr.vector3.normalize(v_smer))
 
-                new_points_betwen_edges = pyrr.vector.interpolate(v0, v1, 0.5)
+                    rotation_matrix_90_counterclockwise = Matrix33.from_z_rotation(np.pi/2)
+                    v_smer_n_90_counterclockwise = rotation_matrix_90_counterclockwise * v_smer_n
+                    new_point_on_left_edge = v0 + (v_smer_n_90_counterclockwise * (sirces*4.5))
+                    new_point_on_left_edge[2] -= 2 #debelina mostu
 
-                new_point_on_path = v0 + (2 * v_smer_n)
+                    rotation_matrix_90_clockwise = Matrix33.from_z_rotation(-(np.pi/2))
+                    v_smer_n_90_clockwise = rotation_matrix_90_clockwise * v_smer_n
+                    new_point_on_right_edge = v0 + (v_smer_n_90_clockwise * (sirces*4.5))
+                    new_point_on_right_edge[2] -= 2 #debelina mostu
 
 
+                    new_points_betwen_edges = []
+
+                    for i in np.arange(0.0, 1.0, 0.01):
+                        new_points_betwen_edges.append(pyrr.vector3.interpolate(new_point_on_left_edge, new_point_on_right_edge, i))
+
+                    l = np.array(new_points_betwen_edges).transpose()*100
+
+                # print()
+                # writePointsToLasFile(l)
+                # exit()
+
+                #new_point_on_path = v0 + (2 * v_smer_n)
+
+                print()
 
             print()
             print("to je most tipa: ", tipobj_ces)
