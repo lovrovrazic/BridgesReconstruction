@@ -12,6 +12,9 @@ import numpy as np
 import pyrr
 from pyrr import Matrix33, Vector3
 
+def distanceBetwenTwoPoints(p0, p1):
+    return np.linalg.norm(p0 - p1)
+
 def writePointsToLasFile(points):
     # inFile = File("/path/to/lasfile", mode="r")
     #
@@ -190,6 +193,8 @@ min_x = inFile.header.min[0] * 100
 min_y = inFile.header.min[1] * 100
 min_z = inFile.header.min[2] * 100
 
+debelina_mostu = 1
+
 print("Loading shp file ...")
 with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
 
@@ -222,38 +227,61 @@ with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
 
             for p0, p1 in zip(path_points_with_z[0:], path_points_with_z[1:]):
 
-                for j in np.arange(0.0, 1.0, 0.01):
+                v0 = Vector3(p0)
+                v1 = Vector3(p1)
+                v_smer = v1-v0
+                v_smer_n = Vector3(pyrr.vector3.normalize(v_smer))
 
-                    v0 = Vector3(p0)
-                    v1 = Vector3(p1)
-                    v_smer = v1-v0
-                    v_smer_n = Vector3(pyrr.vector3.normalize(v_smer))
+                distance_of_bridge_segment = distanceBetwenTwoPoints(np.array(p0), np.array(p1))
+
+                current_point_on_path = v0
+                next_point_on_path = v0 + (.25 * v_smer_n)  # gostota točk vzdolž mostu
+
+                while (distance_of_bridge_segment+1.75 >= distanceBetwenTwoPoints(
+                        np.array((next_point_on_path.x, next_point_on_path.y, next_point_on_path.z)),
+                        p0)):
+
+                    #print("new distance: ", distanceBetwenTwoPoints(
+                    #     np.array((next_point_on_path.x, next_point_on_path.y, next_point_on_path.z)),
+                    #     p0))
 
                     rotation_matrix_90_counterclockwise = Matrix33.from_z_rotation(np.pi/2)
                     v_smer_n_90_counterclockwise = rotation_matrix_90_counterclockwise * v_smer_n
-                    new_point_on_left_edge = v0 + (v_smer_n_90_counterclockwise * (sirces*4.5))
-                    new_point_on_left_edge[2] -= 2 #debelina mostu
+                    new_point_on_left_edge = current_point_on_path + (v_smer_n_90_counterclockwise * (sirces * 3.5)) # polovica širine mostu
+                    new_point_on_left_edge[2] -= debelina_mostu # debelina mostu
+
+                    z = new_point_on_left_edge[2]
+                    while (z <= current_point_on_path.z):
+                        new_point = Vector3(new_point_on_left_edge).copy()
+                        new_point[2] = z + 0.1 # gostota točk v višino mostu
+                        new_points_for_underside_of_bridge.append(new_point)
+                        z = new_point[2]
 
                     rotation_matrix_90_clockwise = Matrix33.from_z_rotation(-(np.pi/2))
                     v_smer_n_90_clockwise = rotation_matrix_90_clockwise * v_smer_n
-                    new_point_on_right_edge = v0 + (v_smer_n_90_clockwise * (sirces*4.5))
-                    new_point_on_right_edge[2] -= 2 #debelina mostu
+                    new_point_on_right_edge = current_point_on_path + (v_smer_n_90_clockwise * (sirces * 3.5)) # polovica širine mostu
+                    new_point_on_right_edge[2] -= debelina_mostu # debelina mostu
+
+                    z = new_point_on_right_edge[2]
+                    while (z <= current_point_on_path.z):
+                        new_point = Vector3(new_point_on_right_edge).copy()
+                        new_point[2] = z + 0.1 # gostota točk v višino mostu
+                        new_points_for_underside_of_bridge.append(new_point)
+                        z = new_point[2]
+
+                    for i in np.arange(0.0, 1.0, 0.01): # gostota točk v širino mostu
+                        new_points_for_underside_of_bridge.append(pyrr.vector3.interpolate(new_point_on_left_edge, new_point_on_right_edge, i))
+
+                    current_point_on_path = next_point_on_path
+                    next_point_on_path = next_point_on_path + (.25 * v_smer_n)
+
+            l = np.array(new_points_for_underside_of_bridge).transpose() * 100
+
+            print()
+            writePointsToLasFile(l)
+            exit()
 
 
-                    new_points_betwen_edges = []
-
-                    for i in np.arange(0.0, 1.0, 0.01):
-                        new_points_betwen_edges.append(pyrr.vector3.interpolate(new_point_on_left_edge, new_point_on_right_edge, i))
-
-                    l = np.array(new_points_betwen_edges).transpose()*100
-
-                # print()
-                # writePointsToLasFile(l)
-                # exit()
-
-                #new_point_on_path = v0 + (2 * v_smer_n)
-
-                print()
 
             print()
             print("to je most tipa: ", tipobj_ces)
