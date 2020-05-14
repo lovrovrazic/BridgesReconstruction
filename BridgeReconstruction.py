@@ -4,6 +4,7 @@ import shapefile
 import numpy as np
 import pyrr
 from pyrr import Matrix33, Vector3
+import time
 
 def distanceBetwenTwoPoints(p0, p1):
     return np.linalg.norm(p0 - p1)
@@ -30,7 +31,7 @@ def writePointsToLasFile(points, name):
     #hdr = laspy.header.Header()
 
     #outfile = laspy.file.File("data/out_example.las", mode="w", header=hdr)
-    outfile = laspy.file.File("data/{}.las".format(name), mode="w", header=inFile.header)
+    outfile = laspy.file.File("data/0/{}.las".format(name), mode="w", header=inFile.header)
     allx = np.array(points[0])
     ally = np.array(points[1])
     allz = np.array(points[2])
@@ -83,7 +84,7 @@ def getPointsInBbox(bbox):
     return (inFile.X[inidx], inFile.Y[inidx], inFile.Z[inidx])
 
 
-def getPointsWithinDistance(points, x, y, z):
+def getPointsWithinDistance(points, x, y, z, radius):
 
     #all_points = inFile.points.copy()
 
@@ -116,7 +117,7 @@ def getPointsWithinDistance(points, x, y, z):
     distances = np.sqrt(np.sum((coords - first_point) ** 2, axis=1))
     # distances.sort()
     # d = np.flip(distances)
-    keep_points = distances < 60 #radius
+    keep_points = distances < radius #radius
 
     # c = keep_points.tolist().count(True)
     # i_s = []
@@ -136,26 +137,49 @@ def getPointsWithinDistance(points, x, y, z):
 
 def getLocalMaxZ(points, path_point):
     print()
-    print("searching for z of:")
+    print("searching for max z of:")
     print("x: ", path_point[0])
     print("y: ", path_point[1])
-    z_found = None
+    z_found = max_z/100
     for z in np.arange(max_z, min_z - 1, -10):
-        close_points = getPointsWithinDistance(points, path_point[0], path_point[1], z)
+        close_points = getPointsWithinDistance(points, path_point[0], path_point[1], z, 60)
 
         if len(close_points[0]) > 5: # number of points inside radius
         #if close_points.tolist().count(True) > 50:
             #writePointsToLasFile(inFile.points[close_points])
             #print("z: ", z)
-            print("found z: ", (z-25)/100)
+            print("found max z: ", (z-25)/100)
             z_found = (z-25)/100
-            #print("i have 20 points within 100 units")
             break
 
     return z_found
 
+def getLocalMinZ(points, path_point, plus=65.0, radius=100.0):
+    print()
+    print("searching for min z of:")
+    print("x: ", path_point[0])
+    print("y: ", path_point[1])
+    z_found = None
+    for z in np.arange(min_z, max_z-1, 10):
+        close_points = getPointsWithinDistance(points, path_point[0], path_point[1], z, radius)
+
+        if len(close_points[0]) > 5: # number of points inside radius
+        #if close_points.tolist().count(True) > 50:
+            #writePointsToLasFile(inFile.points[close_points])
+            #print("z: ", z)
+            print("found min z: ", (z+plus)/radius)
+            z_found = (z+plus)/radius
+            break
+
+    if (not z_found):
+        return getLocalMinZ(points, path_point, plus*1.1, radius*1.1)
+
+    return z_found
+
+start_time = time.time()
+
 print("Loading LAS file ...")
-inFile = File('data/TM_463_104.las', mode='r')
+inFile = File('data/TM_463_105.las', mode='r')
 
 #data = inFile.points.tolist()
 
@@ -188,6 +212,7 @@ min_y = inFile.header.min[1] * 100
 min_z = inFile.header.min[2] * 100
 
 debelina_mostu = 1
+D = 0.5
 
 print("Loading shp file ...")
 with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
@@ -198,11 +223,14 @@ with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
 
     for shape_i, shape in enumerate(shapes, 0):
         tipobj_ces = records[shape_i][5]
+
         if (tipobj_ces in [3, 4, 5] and isBridgeInScope(shape.bbox)):
 
             sirces = records[shape_i][6]
             sirvoz = records[shape_i][7]
             id = records[shape_i][0]
+            # if (id == 464618):
+            #     continue
             path_points = shape.points
 
             print()
@@ -214,7 +242,7 @@ with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
             print("i: ", id)
 
             points_in_bbox = getPointsInBbox(shape.bbox)
-            writePointsToLasFile(points_in_bbox, "bbox_{}".format(shape_i))
+            writePointsToLasFile(points_in_bbox, "bbox_{}".format(id))
             #exit()
 
             path_points_with_z = []
@@ -226,7 +254,7 @@ with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
                                            ))
 
             new_points_for_underside_of_bridge = []
-
+            new_points_for_terrain_under_bridge = []
             for p0, p1 in zip(path_points_with_z[0:], path_points_with_z[1:]):
 
                 v0 = Vector3(p0)
@@ -252,10 +280,10 @@ with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
                     new_point_on_left_edge = current_point_on_path + (v_smer_n_90_counterclockwise * (sirces/1.5)) # polovica širine mostu
                     new_point_on_left_edge[2] -= sirces/11 # debelina mostu
 
-                    z = new_point_on_left_edge[2]
+                    z = new_point_on_left_edge[2] - (0.2 / D)
                     while (z <= current_point_on_path.z):
                         new_point = Vector3(new_point_on_left_edge).copy()
-                        new_point[2] = z + 0.1 # gostota točk v višino mostu
+                        new_point[2] = z + (0.2 / D) # gostota točk v višino mostu
                         new_points_for_underside_of_bridge.append(new_point)
                         z = new_point[2]
 
@@ -264,26 +292,50 @@ with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
                     new_point_on_right_edge = current_point_on_path + (v_smer_n_90_clockwise * (sirces/1.5)) # polovica širine mostu
                     new_point_on_right_edge[2] -= sirces/11 # debelina mostu
 
-                    z = new_point_on_right_edge[2]
+                    z = new_point_on_right_edge[2] - (0.2 / D)
                     while (z <= current_point_on_path.z):
                         new_point = Vector3(new_point_on_right_edge).copy()
-                        new_point[2] = z + 0.1 # gostota točk v višino mostu
+                        new_point[2] = z + (0.2 / D) # gostota točk v višino mostu
                         new_points_for_underside_of_bridge.append(new_point)
                         z = new_point[2]
 
-                    for point_i in np.arange(0.0, 1.0, 0.01): # gostota točk v širino mostu
+                    for point_i in np.arange(0.0, 1.0, 0.02 / D): # gostota točk v širino mostu
                         new_points_for_underside_of_bridge.append(pyrr.vector3.interpolate(new_point_on_left_edge, new_point_on_right_edge, point_i))
 
-                    current_point_on_path = next_point_on_path
-                    next_point_on_path = next_point_on_path + (.25 * v_smer_n)
+                    terrain_point_left = new_point_on_left_edge + (v_smer_n_90_counterclockwise * (1.3))
+                    terrain_point_right = new_point_on_right_edge + (v_smer_n_90_clockwise * (1.3))
+                    terrain_point_left_z = getLocalMinZ(points_in_bbox, terrain_point_left)
+                    terrain_point_right_z = getLocalMinZ(points_in_bbox, terrain_point_right)
 
-            l = np.array(new_points_for_underside_of_bridge).transpose() * 100
+                    # terrain_point_left_z = getLocalMinZ(points_in_bbox, terrain_point_left, new_point_on_left_edge[2])
+                    # terrain_point_right_z = getLocalMinZ(points_in_bbox, terrain_point_right, new_point_on_right_edge[2])
+
+                    if (abs(new_point_on_left_edge.z - terrain_point_left_z) <= 1.5 or abs(new_point_on_right_edge.z - terrain_point_right_z) <= 1.5):
+                        new_z = min(terrain_point_left_z, terrain_point_right_z)
+                        terrain_point_left[2] = new_z
+                        terrain_point_right[2] = new_z
+                    else:
+                        terrain_point_left[2] = terrain_point_left_z
+                        terrain_point_right[2] = terrain_point_right_z
+
+                    for point_i in np.arange(0.0, 1.0, 0.02 / D):
+                        new_points_for_terrain_under_bridge.append(pyrr.vector3.interpolate(terrain_point_left, terrain_point_right, point_i))
+
+                    current_point_on_path = next_point_on_path
+                    next_point_on_path = next_point_on_path + ((.25 / D) * v_smer_n)
+
+            all_new_points = []
+            all_new_points.extend(new_points_for_underside_of_bridge)
+            all_new_points.extend(new_points_for_terrain_under_bridge)
+            l = np.array(all_new_points).transpose() * 100
 
             print()
-            print("writing to new_points_{}".format(shape_i))
-            writePointsToLasFile(l, "new_points_{}".format(shape_i))
-            # exit()
+            print("writing to new_points_{}".format(id))
+            writePointsToLasFile(l, "new_points_{}".format(id))
+
+            print("--- it took %s seconds ---" % ((time.time() - start_time)/60))
+            #exit()
 
     print(shp)
-
+    print("--- it took %s seconds ---" % (time.time() - start_time))
 
