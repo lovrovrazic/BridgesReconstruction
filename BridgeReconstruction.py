@@ -212,7 +212,7 @@ min_y = inFile.header.min[1] * 100
 min_z = inFile.header.min[2] * 100
 
 debelina_mostu = 1
-D = 0.5
+D = 0.5 # gostota točk
 
 print("Loading shp file ...")
 with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
@@ -224,7 +224,7 @@ with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
     for shape_i, shape in enumerate(shapes, 0):
         tipobj_ces = records[shape_i][5]
 
-        if (tipobj_ces in [3, 4, 5] and isBridgeInScope(shape.bbox)):
+        if (tipobj_ces in [3, 4, 5, 9] and isBridgeInScope(shape.bbox)):
 
             sirces = records[shape_i][6]
             sirvoz = records[shape_i][7]
@@ -255,6 +255,11 @@ with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
 
             new_points_for_underside_of_bridge = []
             new_points_for_terrain_under_bridge = []
+
+
+
+
+            
             for p0, p1 in zip(path_points_with_z[0:], path_points_with_z[1:]):
 
                 v0 = Vector3(p0)
@@ -323,6 +328,11 @@ with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
 
                     current_point_on_path = next_point_on_path
                     next_point_on_path = next_point_on_path + ((.25 / D) * v_smer_n)
+
+
+
+
+
 
             all_new_points = []
             all_new_points.extend(new_points_for_underside_of_bridge)
