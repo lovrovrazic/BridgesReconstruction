@@ -1,13 +1,6 @@
 from laspy.file import File
 import laspy
-import time
-import numpy as np
-import random
-#import pyflann as pf
-import numpy as np
 import shapefile
-#import index
-from scipy.spatial.kdtree import KDTree
 import numpy as np
 import pyrr
 from pyrr import Matrix33, Vector3
@@ -15,7 +8,7 @@ from pyrr import Matrix33, Vector3
 def distanceBetwenTwoPoints(p0, p1):
     return np.linalg.norm(p0 - p1)
 
-def writePointsToLasFile(points):
+def writePointsToLasFile(points, name):
     # inFile = File("/path/to/lasfile", mode="r")
     #
     # # Get arrays which indicate VALID X, Y, or Z values.
@@ -37,7 +30,7 @@ def writePointsToLasFile(points):
     #hdr = laspy.header.Header()
 
     #outfile = laspy.file.File("data/out_example.las", mode="w", header=hdr)
-    outfile = laspy.file.File("data/out_brudge_underside.las", mode="w", header=inFile.header)
+    outfile = laspy.file.File("data/{}.las".format(name), mode="w", header=inFile.header)
     allx = np.array(points[0])
     ally = np.array(points[1])
     allz = np.array(points[2])
@@ -47,6 +40,7 @@ def writePointsToLasFile(points):
     zmin = np.floor(np.min(allz))
 
     outfile.header.offset = [xmin, ymin, zmin]
+    #outfile.header.offset = [min_x/100, min_y/100, min_z/100]
     outfile.header.scale = [1, 1, 1]
     #outfile.header.scale = [0.001, 0.001, 0.001]
 
@@ -120,14 +114,14 @@ def getPointsWithinDistance(points, x, y, z):
     first_point = coords[-1, :]
     #distances = np.sum((coords - first_point) ** 2, axis=1)
     distances = np.sqrt(np.sum((coords - first_point) ** 2, axis=1))
-    distances.sort()
-    d = np.flip(distances)
-    keep_points = distances < 50 #radius
+    # distances.sort()
+    # d = np.flip(distances)
+    keep_points = distances < 60 #radius
 
-    c = keep_points.tolist().count(True)
-    i_s = []
-    for i, b in enumerate(keep_points.tolist()):
-        if b: i_s.append((i, b))
+    # c = keep_points.tolist().count(True)
+    # i_s = []
+    # for i, b in enumerate(keep_points.tolist()):
+    #     if b: i_s.append((i, b))
 
     # Grab an array of all points which meet this threshold
     #points_kept = inFile.points[keep_points[:-1]]
@@ -202,26 +196,34 @@ with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
     fields = shp.fields
     records = shp.records()
 
-    for i, shape in enumerate(shapes, 0):
-        tipobj_ces = records[i][5]
+    for shape_i, shape in enumerate(shapes, 0):
+        tipobj_ces = records[shape_i][5]
         if (tipobj_ces in [3, 4, 5] and isBridgeInScope(shape.bbox)):
 
+            sirces = records[shape_i][6]
+            sirvoz = records[shape_i][7]
+            id = records[shape_i][0]
+            path_points = shape.points
+
+            print()
+            print("to je most tipa: ", tipobj_ces)
+            print("bbox: ", shape.bbox)
+            print("points: ", path_points)
+            print("sirces: ", sirces)
+            print("sirvoz: ", sirvoz)
+            print("i: ", id)
+
             points_in_bbox = getPointsInBbox(shape.bbox)
-            #writePointsToLasFile(points_in_bbox)
+            writePointsToLasFile(points_in_bbox, "bbox_{}".format(shape_i))
             #exit()
 
-            path_points = shape.points
             path_points_with_z = []
 
-            for i in range(len(path_points)):
-                path_points_with_z.append((path_points[i][0],
-                                           path_points[i][1],
-                                           getLocalMaxZ(points_in_bbox, path_points[i])
+            for path_point_i in range(len(path_points)):
+                path_points_with_z.append((path_points[path_point_i][0],
+                                           path_points[path_point_i][1],
+                                           getLocalMaxZ(points_in_bbox, path_points[path_point_i])
                                            ))
-
-            sirces = records[i][6]
-            sirvoz = records[i][7]
-            id = records[i][0]
 
             new_points_for_underside_of_bridge = []
 
@@ -247,8 +249,8 @@ with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
 
                     rotation_matrix_90_counterclockwise = Matrix33.from_z_rotation(np.pi/2)
                     v_smer_n_90_counterclockwise = rotation_matrix_90_counterclockwise * v_smer_n
-                    new_point_on_left_edge = current_point_on_path + (v_smer_n_90_counterclockwise * (sirces * 3.5)) # polovica širine mostu
-                    new_point_on_left_edge[2] -= debelina_mostu # debelina mostu
+                    new_point_on_left_edge = current_point_on_path + (v_smer_n_90_counterclockwise * (sirces/1.5)) # polovica širine mostu
+                    new_point_on_left_edge[2] -= sirces/11 # debelina mostu
 
                     z = new_point_on_left_edge[2]
                     while (z <= current_point_on_path.z):
@@ -259,8 +261,8 @@ with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
 
                     rotation_matrix_90_clockwise = Matrix33.from_z_rotation(-(np.pi/2))
                     v_smer_n_90_clockwise = rotation_matrix_90_clockwise * v_smer_n
-                    new_point_on_right_edge = current_point_on_path + (v_smer_n_90_clockwise * (sirces * 3.5)) # polovica širine mostu
-                    new_point_on_right_edge[2] -= debelina_mostu # debelina mostu
+                    new_point_on_right_edge = current_point_on_path + (v_smer_n_90_clockwise * (sirces/1.5)) # polovica širine mostu
+                    new_point_on_right_edge[2] -= sirces/11 # debelina mostu
 
                     z = new_point_on_right_edge[2]
                     while (z <= current_point_on_path.z):
@@ -269,8 +271,8 @@ with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
                         new_points_for_underside_of_bridge.append(new_point)
                         z = new_point[2]
 
-                    for i in np.arange(0.0, 1.0, 0.01): # gostota točk v širino mostu
-                        new_points_for_underside_of_bridge.append(pyrr.vector3.interpolate(new_point_on_left_edge, new_point_on_right_edge, i))
+                    for point_i in np.arange(0.0, 1.0, 0.01): # gostota točk v širino mostu
+                        new_points_for_underside_of_bridge.append(pyrr.vector3.interpolate(new_point_on_left_edge, new_point_on_right_edge, point_i))
 
                     current_point_on_path = next_point_on_path
                     next_point_on_path = next_point_on_path + (.25 * v_smer_n)
@@ -278,23 +280,10 @@ with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
             l = np.array(new_points_for_underside_of_bridge).transpose() * 100
 
             print()
-            writePointsToLasFile(l)
-            exit()
+            print("writing to new_points_{}".format(shape_i))
+            writePointsToLasFile(l, "new_points_{}".format(shape_i))
+            # exit()
 
-
-
-            print()
-            print("to je most tipa: ", tipobj_ces)
-            print("bbox: ", shape.bbox)
-            print("points: ", path_points)
-            print("sirces: ", sirces)
-            print("sirvoz: ", sirvoz)
-            print("i: ", id)
-
-
-
-
-    print()
     print(shp)
 
-print()
+
