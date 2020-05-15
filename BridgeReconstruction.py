@@ -1,10 +1,13 @@
 from laspy.file import File
 import laspy
 import shapefile
-import numpy as np
 import pyrr
 from pyrr import Matrix33, Vector3
 import time
+import multiprocessing as mp
+import numpy as np
+
+
 
 def distanceBetwenTwoPoints(p0, p1):
     return np.linalg.norm(p0 - p1)
@@ -31,7 +34,7 @@ def writePointsToLasFile(points, name):
     #hdr = laspy.header.Header()
 
     #outfile = laspy.file.File("data/out_example.las", mode="w", header=hdr)
-    outfile = laspy.file.File("data/0/{}.las".format(name), mode="w", header=inFile.header)
+    outfile = laspy.file.File("data/8/{}_{}.las".format(name, int(D*10)), mode="w", header=inFile.header)
     allx = np.array(points[0])
     ally = np.array(points[1])
     allz = np.array(points[2])
@@ -135,30 +138,32 @@ def getPointsWithinDistance(points, x, y, z, radius):
     #return keep_points
     return points_kept
 
-def getLocalMaxZ(points, path_point):
-    print()
-    print("searching for max z of:")
-    print("x: ", path_point[0])
-    print("y: ", path_point[1])
+def getLocalMaxZ(path_point_i, x, y, points, path_point):
+    #print()
+    #print("searching for max z of:")
+    #print("x: ", path_point[0])
+    #print("y: ", path_point[1])
     z_found = max_z/100
-    for z in np.arange(max_z, min_z - 1, -10):
+    maxx = max(points[2])
+
+    for z in np.arange(maxx, min_z-1, -10):
         close_points = getPointsWithinDistance(points, path_point[0], path_point[1], z, 60)
 
         if len(close_points[0]) > 5: # number of points inside radius
         #if close_points.tolist().count(True) > 50:
             #writePointsToLasFile(inFile.points[close_points])
             #print("z: ", z)
-            print("found max z: ", (z-25)/100)
+            #print("found max z: ", (z-25)/100)
             z_found = (z-25)/100
             break
 
-    return z_found
+    return (path_point_i, x, y, z_found)
 
 def getLocalMinZ(points, path_point, plus=65.0, radius=100.0):
-    print()
-    print("searching for min z of:")
-    print("x: ", path_point[0])
-    print("y: ", path_point[1])
+    #print()
+    #print("searching for min z of:")
+    #print("x: ", path_point[0])
+    #print("y: ", path_point[1])
     z_found = None
     for z in np.arange(min_z, max_z-1, 10):
         close_points = getPointsWithinDistance(points, path_point[0], path_point[1], z, radius)
@@ -167,7 +172,7 @@ def getLocalMinZ(points, path_point, plus=65.0, radius=100.0):
         #if close_points.tolist().count(True) > 50:
             #writePointsToLasFile(inFile.points[close_points])
             #print("z: ", z)
-            print("found min z: ", (z+plus)/radius)
+            #print("found min z: ", (z+plus)/radius)
             z_found = (z+plus)/radius
             break
 
@@ -175,6 +180,95 @@ def getLocalMinZ(points, path_point, plus=65.0, radius=100.0):
         return getLocalMinZ(points, path_point, plus*1.1, radius*1.1)
 
     return z_found
+
+def calculateSegment(p0, p1):
+
+    new_points = []
+
+    v0 = Vector3(p0)
+    v1 = Vector3(p1)
+    v_smer = v1 - v0
+    v_smer_n = Vector3(pyrr.vector3.normalize(v_smer))
+
+    distance_of_bridge_segment = distanceBetwenTwoPoints(np.array(p0), np.array(p1))
+
+    current_point_on_path = v0
+    next_point_on_path = v0 + (.25 / D * v_smer_n)  # gostota točk vzdolž mostu
+
+    while (distance_of_bridge_segment + 1.75 >= distanceBetwenTwoPoints(
+            np.array((next_point_on_path.x, next_point_on_path.y, next_point_on_path.z)),
+            p0)):
+
+        # print("new distance: ", distanceBetwenTwoPoints(
+        #     np.array((next_point_on_path.x, next_point_on_path.y, next_point_on_path.z)),
+        #     p0))
+
+        rotation_matrix_90_counterclockwise = Matrix33.from_z_rotation(np.pi / 2)
+        v_smer_n_90_counterclockwise = rotation_matrix_90_counterclockwise * v_smer_n
+        new_point_on_left_edge = current_point_on_path + (
+                    v_smer_n_90_counterclockwise * (sirces / 1.5))  # polovica širine mostu
+        new_point_on_left_edge[2] -= sirces / 11  # debelina mostu
+
+        z = new_point_on_left_edge[2] - (0.2 / D)
+        while (z <= current_point_on_path.z):
+            new_point = Vector3(new_point_on_left_edge).copy()
+            new_point[2] = z + (0.2 / D)  # gostota točk v višino mostu
+            new_points.append(new_point)
+            z = new_point[2]
+
+        rotation_matrix_90_clockwise = Matrix33.from_z_rotation(-(np.pi / 2))
+        v_smer_n_90_clockwise = rotation_matrix_90_clockwise * v_smer_n
+        new_point_on_right_edge = current_point_on_path + (
+                    v_smer_n_90_clockwise * (sirces / 1.5))  # polovica širine mostu
+        new_point_on_right_edge[2] -= sirces / 11  # debelina mostu
+
+        z = new_point_on_right_edge[2] - (0.2 / D)
+        while (z <= current_point_on_path.z):
+            new_point = Vector3(new_point_on_right_edge).copy()
+            new_point[2] = z + (0.2 / D)  # gostota točk v višino mostu
+            new_points.append(new_point)
+            z = new_point[2]
+
+        for point_i in np.arange(0.0, 1.0, 0.02 / D):  # gostota točk v širino mostu
+            new_points.append(
+                pyrr.vector3.interpolate(new_point_on_left_edge, new_point_on_right_edge, point_i))
+
+        terrain_point_left = new_point_on_left_edge + (v_smer_n_90_counterclockwise * (1.3))
+        terrain_point_right = new_point_on_right_edge + (v_smer_n_90_clockwise * (1.3))
+        terrain_point_left_z = getLocalMinZ(points_in_bbox, terrain_point_left)
+        terrain_point_right_z = getLocalMinZ(points_in_bbox, terrain_point_right)
+
+        # terrain_point_left_z = getLocalMinZ(points_in_bbox, terrain_point_left, new_point_on_left_edge[2])
+        # terrain_point_right_z = getLocalMinZ(points_in_bbox, terrain_point_right, new_point_on_right_edge[2])
+
+        if (abs(new_point_on_left_edge.z - terrain_point_left_z) <= 0.75 or abs(
+                new_point_on_right_edge.z - terrain_point_right_z) <= 0.75):
+            new_z = min(terrain_point_left_z, terrain_point_right_z)
+            terrain_point_left[2] = new_z
+            terrain_point_right[2] = new_z
+        else:
+            terrain_point_left[2] = terrain_point_left_z
+            terrain_point_right[2] = terrain_point_right_z
+
+        for point_i in np.arange(0.0, 1.0, 0.02 / D):
+            new_points.append(
+                pyrr.vector3.interpolate(terrain_point_left, terrain_point_right, point_i))
+
+        current_point_on_path = next_point_on_path
+        next_point_on_path = next_point_on_path + ((.25 / D) * v_smer_n)
+
+    return new_points
+
+def collect_result_segment(result):
+    global resulting_points
+    resulting_points.append(result)
+
+def collect_result_zs(result):
+    global path_points_with_z
+    path_points_with_z.append(result)
+
+resulting_points = []
+path_points_with_z = []
 
 start_time = time.time()
 
@@ -245,106 +339,50 @@ with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
             writePointsToLasFile(points_in_bbox, "bbox_{}".format(id))
             #exit()
 
-            path_points_with_z = []
+            cpu_count = mp.cpu_count()
+            pool_zs = mp.Pool(cpu_count)
 
             for path_point_i in range(len(path_points)):
-                path_points_with_z.append((path_points[path_point_i][0],
-                                           path_points[path_point_i][1],
-                                           getLocalMaxZ(points_in_bbox, path_points[path_point_i])
-                                           ))
+                pool_zs.apply_async(getLocalMaxZ, (path_point_i, path_points[path_point_i][0], path_points[path_point_i][1], points_in_bbox, path_points[path_point_i]), callback=collect_result_zs)
+                #getLocalMaxZ(path_point_i, path_points[path_point_i][0], path_points[path_point_i][1], points_in_bbox, path_points[path_point_i])
+                # path_points_with_z.append((path_points[path_point_i][0],
+                #                            path_points[path_point_i][1],
+                #                            getLocalMaxZ(points_in_bbox, path_points[path_point_i])
+                #                            ))
 
-            new_points_for_underside_of_bridge = []
-            new_points_for_terrain_under_bridge = []
+            pool_zs.close()
+            pool_zs.join()
 
+            path_points_with_z.sort(key=lambda x: x[0])
+            path_points_with_z = [(x, y, z) for i, x, y, z in path_points_with_z]
 
+            pool_segments = mp.Pool(cpu_count)
 
-
-            
             for p0, p1 in zip(path_points_with_z[0:], path_points_with_z[1:]):
+                #data.append((p0, p1))
+                pool_segments.apply_async(calculateSegment, (p0,p1), callback=collect_result_segment)
 
-                v0 = Vector3(p0)
-                v1 = Vector3(p1)
-                v_smer = v1-v0
-                v_smer_n = Vector3(pyrr.vector3.normalize(v_smer))
+            #new_points_x = pool.starmap_async(calculateSegment, data)
+            #new_points_x = [pool.apply(calculateSegment, (p0, p1)) for p0, p1 in data]
+            pool_segments.close()
+            pool_segments.join()
 
-                distance_of_bridge_segment = distanceBetwenTwoPoints(np.array(p0), np.array(p1))
+            #l = np.array(new_points_x[0]).transpose() * 100
 
-                current_point_on_path = v0
-                next_point_on_path = v0 + (.25 * v_smer_n)  # gostota točk vzdolž mostu
+            t = []
+            for point_list in resulting_points:
+                t.extend(point_list)
 
-                while (distance_of_bridge_segment+1.75 >= distanceBetwenTwoPoints(
-                        np.array((next_point_on_path.x, next_point_on_path.y, next_point_on_path.z)),
-                        p0)):
-
-                    #print("new distance: ", distanceBetwenTwoPoints(
-                    #     np.array((next_point_on_path.x, next_point_on_path.y, next_point_on_path.z)),
-                    #     p0))
-
-                    rotation_matrix_90_counterclockwise = Matrix33.from_z_rotation(np.pi/2)
-                    v_smer_n_90_counterclockwise = rotation_matrix_90_counterclockwise * v_smer_n
-                    new_point_on_left_edge = current_point_on_path + (v_smer_n_90_counterclockwise * (sirces/1.5)) # polovica širine mostu
-                    new_point_on_left_edge[2] -= sirces/11 # debelina mostu
-
-                    z = new_point_on_left_edge[2] - (0.2 / D)
-                    while (z <= current_point_on_path.z):
-                        new_point = Vector3(new_point_on_left_edge).copy()
-                        new_point[2] = z + (0.2 / D) # gostota točk v višino mostu
-                        new_points_for_underside_of_bridge.append(new_point)
-                        z = new_point[2]
-
-                    rotation_matrix_90_clockwise = Matrix33.from_z_rotation(-(np.pi/2))
-                    v_smer_n_90_clockwise = rotation_matrix_90_clockwise * v_smer_n
-                    new_point_on_right_edge = current_point_on_path + (v_smer_n_90_clockwise * (sirces/1.5)) # polovica širine mostu
-                    new_point_on_right_edge[2] -= sirces/11 # debelina mostu
-
-                    z = new_point_on_right_edge[2] - (0.2 / D)
-                    while (z <= current_point_on_path.z):
-                        new_point = Vector3(new_point_on_right_edge).copy()
-                        new_point[2] = z + (0.2 / D) # gostota točk v višino mostu
-                        new_points_for_underside_of_bridge.append(new_point)
-                        z = new_point[2]
-
-                    for point_i in np.arange(0.0, 1.0, 0.02 / D): # gostota točk v širino mostu
-                        new_points_for_underside_of_bridge.append(pyrr.vector3.interpolate(new_point_on_left_edge, new_point_on_right_edge, point_i))
-
-                    terrain_point_left = new_point_on_left_edge + (v_smer_n_90_counterclockwise * (1.3))
-                    terrain_point_right = new_point_on_right_edge + (v_smer_n_90_clockwise * (1.3))
-                    terrain_point_left_z = getLocalMinZ(points_in_bbox, terrain_point_left)
-                    terrain_point_right_z = getLocalMinZ(points_in_bbox, terrain_point_right)
-
-                    # terrain_point_left_z = getLocalMinZ(points_in_bbox, terrain_point_left, new_point_on_left_edge[2])
-                    # terrain_point_right_z = getLocalMinZ(points_in_bbox, terrain_point_right, new_point_on_right_edge[2])
-
-                    if (abs(new_point_on_left_edge.z - terrain_point_left_z) <= 1.5 or abs(new_point_on_right_edge.z - terrain_point_right_z) <= 1.5):
-                        new_z = min(terrain_point_left_z, terrain_point_right_z)
-                        terrain_point_left[2] = new_z
-                        terrain_point_right[2] = new_z
-                    else:
-                        terrain_point_left[2] = terrain_point_left_z
-                        terrain_point_right[2] = terrain_point_right_z
-
-                    for point_i in np.arange(0.0, 1.0, 0.02 / D):
-                        new_points_for_terrain_under_bridge.append(pyrr.vector3.interpolate(terrain_point_left, terrain_point_right, point_i))
-
-                    current_point_on_path = next_point_on_path
-                    next_point_on_path = next_point_on_path + ((.25 / D) * v_smer_n)
-
-
-
-
-
-
-            all_new_points = []
-            all_new_points.extend(new_points_for_underside_of_bridge)
-            all_new_points.extend(new_points_for_terrain_under_bridge)
-            l = np.array(all_new_points).transpose() * 100
+            l = np.array(t).transpose() * 100
 
             print()
             print("writing to new_points_{}".format(id))
             writePointsToLasFile(l, "new_points_{}".format(id))
 
-            print("--- it took %s seconds ---" % ((time.time() - start_time)/60))
+            print("--- it took %s seconds ---" % ((time.time() - start_time)))
             #exit()
+            resulting_points = []
+            path_points_with_z = []
 
     print(shp)
     print("--- it took %s seconds ---" % (time.time() - start_time))
