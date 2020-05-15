@@ -224,7 +224,7 @@ with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
             print("id: ", id)
 
             points_in_bbox = getPointsInBbox(shape.bbox)
-            #writePointsToLasFile(points_in_bbox, "bbox_{}".format(id))
+            writePointsToLasFile(points_in_bbox, "bbox_{}".format(id))
             #exit()
 
             cpu_count = mp.cpu_count()
