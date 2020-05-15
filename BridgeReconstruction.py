@@ -1,3 +1,7 @@
+#!/usr/bin/python
+
+import sys
+import os
 from laspy.file import File
 import laspy
 import shapefile
@@ -7,34 +11,12 @@ import time
 import multiprocessing as mp
 import numpy as np
 
-
-
 def distanceBetwenTwoPoints(p0, p1):
     return np.linalg.norm(p0 - p1)
 
 def writePointsToLasFile(points, name):
-    # inFile = File("/path/to/lasfile", mode="r")
-    #
-    # # Get arrays which indicate VALID X, Y, or Z values.
-    #
-    # X_invalid = np.logical_and((inFile.header.min[0] <= inFile.x),
-    #                            (inFile.header.max[0] >= inFile.x))
-    # Y_invalid = np.logical_and((inFile.header.min[1] <= inFile.y),
-    #                            (inFile.header.max[1] >= inFile.y))
-    # Z_invalid = np.logical_and((inFile.header.min[2] <= inFile.z),
-    #                            (inFile.header.max[2] >= inFile.z))
-    # good_indices = np.where(np.logical_and(X_invalid, Y_invalid, Z_invalid))
-    # good_points = inFile.points[good_indices]
+    outfile = laspy.file.File("{}.las".format(os.path.join(out_path, name)), mode="w", header=inFile.header)
 
-    # output_file = File("data/out_0.las", mode="w", header=inFile.header)
-    # #output_file.points = good_points
-    # output_file.points = points
-    # output_file.close()
-
-    #hdr = laspy.header.Header()
-
-    #outfile = laspy.file.File("data/out_example.las", mode="w", header=hdr)
-    outfile = laspy.file.File("data/8/{}_{}.las".format(name, int(D*10)), mode="w", header=inFile.header)
     allx = np.array(points[0])
     ally = np.array(points[1])
     allz = np.array(points[2])
@@ -44,9 +26,7 @@ def writePointsToLasFile(points, name):
     zmin = np.floor(np.min(allz))
 
     outfile.header.offset = [xmin, ymin, zmin]
-    #outfile.header.offset = [min_x/100, min_y/100, min_z/100]
     outfile.header.scale = [1, 1, 1]
-    #outfile.header.scale = [0.001, 0.001, 0.001]
 
     outfile.x = allx
     outfile.y = ally
@@ -66,83 +46,29 @@ def isBridgeInScope(bbox):
             bbox_y_1 > min_y and bbox_y_1 < max_y)
 
 def getPointsInBbox(bbox):
-
     margin = 1000
-
-    #points = [(random.random(), random.random()) for i in range(100)]
     points = [(x, y) for x, y in zip(inFile.X, inFile.Y)]
-
     pts = np.array(points)
     ll = np.array([bbox[0] * 100 - margin, bbox[1] * 100 - margin])  # lower-left
     ur = np.array([bbox[2] * 100 + margin, bbox[3] * 100 + margin])  # upper-right
-
     inidx = np.all(np.logical_and(ll <= pts, pts <= ur), axis=1)
-    #inbox = pts[inidx]
-    #count_true = inidx.tolist().count(True)
-    #inbox = inFile.points[inidx]
-    #outbox = pts[np.logical_not(inidx)]
-
-    #return inbox
-    #return inidx
     return (inFile.X[inidx], inFile.Y[inidx], inFile.Z[inidx])
 
 
 def getPointsWithinDistance(points, x, y, z, radius):
-
-    #all_points = inFile.points.copy()
-
-    #print()
-    #z=28836
-
-    # xs = np.append(inFile.X[points], x*100)
-    # ys = np.append(inFile.Y[points], y*100)
-    # zs = np.append(inFile.Z[points], z)
-
-    # xs = np.append(inFile.x.copy(), x)
-    # ys = np.append(inFile.y.copy(), y)
-    # zs = np.append(inFile.z.copy(), z)
-    #
-    # coords_0 = np.vstack((xs, ys, zs)).transpose()
-
-    # xs = [point_x for point_x in points[0]].append(x)
-    # ys = [point_y for point_y in points[1]].append(y)
-    # zs = [point_z for point_z in points[2]].append(z)
-
     xs = np.append(points[0], x*100)
     ys = np.append(points[1], y*100)
     zs = np.append(points[2], z)
 
-    #coords = np.vstack((inFile.x[:].append(x), inFile.y[:].append(y), inFile.z[:].append(z))).transpose()
     coords = np.vstack((xs, ys, zs)).transpose()
-
     first_point = coords[-1, :]
-    #distances = np.sum((coords - first_point) ** 2, axis=1)
     distances = np.sqrt(np.sum((coords - first_point) ** 2, axis=1))
-    # distances.sort()
-    # d = np.flip(distances)
     keep_points = distances < radius #radius
-
-    # c = keep_points.tolist().count(True)
-    # i_s = []
-    # for i, b in enumerate(keep_points.tolist()):
-    #     if b: i_s.append((i, b))
-
-    # Grab an array of all points which meet this threshold
-    #points_kept = inFile.points[keep_points[:-1]]
-    #points_kept = points[keep_points[:-1]]
-
     points_kept = (points[0][keep_points[:-1]], points[1][keep_points[:-1]], points[2][keep_points[:-1]])
 
-    #print("We're keeping %i points out of %i total" % (len(points_kept[0]), len(points[0])))
-
-    #return keep_points
     return points_kept
 
 def getLocalMaxZ(path_point_i, x, y, points, path_point):
-    #print()
-    #print("searching for max z of:")
-    #print("x: ", path_point[0])
-    #print("y: ", path_point[1])
     z_found = max_z/100
     maxx = max(points[2])
 
@@ -150,29 +76,17 @@ def getLocalMaxZ(path_point_i, x, y, points, path_point):
         close_points = getPointsWithinDistance(points, path_point[0], path_point[1], z, 60)
 
         if len(close_points[0]) > 5: # number of points inside radius
-        #if close_points.tolist().count(True) > 50:
-            #writePointsToLasFile(inFile.points[close_points])
-            #print("z: ", z)
-            #print("found max z: ", (z-25)/100)
             z_found = (z-25)/100
             break
 
     return (path_point_i, x, y, z_found)
 
 def getLocalMinZ(points, path_point, plus=65.0, radius=100.0):
-    #print()
-    #print("searching for min z of:")
-    #print("x: ", path_point[0])
-    #print("y: ", path_point[1])
     z_found = None
+
     for z in np.arange(min_z, max_z-1, 10):
         close_points = getPointsWithinDistance(points, path_point[0], path_point[1], z, radius)
-
         if len(close_points[0]) > 5: # number of points inside radius
-        #if close_points.tolist().count(True) > 50:
-            #writePointsToLasFile(inFile.points[close_points])
-            #print("z: ", z)
-            #print("found min z: ", (z+plus)/radius)
             z_found = (z+plus)/radius
             break
 
@@ -198,10 +112,6 @@ def calculateSegment(p0, p1):
     while (distance_of_bridge_segment + 1.75 >= distanceBetwenTwoPoints(
             np.array((next_point_on_path.x, next_point_on_path.y, next_point_on_path.z)),
             p0)):
-
-        # print("new distance: ", distanceBetwenTwoPoints(
-        #     np.array((next_point_on_path.x, next_point_on_path.y, next_point_on_path.z)),
-        #     p0))
 
         rotation_matrix_90_counterclockwise = Matrix33.from_z_rotation(np.pi / 2)
         v_smer_n_90_counterclockwise = rotation_matrix_90_counterclockwise * v_smer_n
@@ -238,11 +148,8 @@ def calculateSegment(p0, p1):
         terrain_point_left_z = getLocalMinZ(points_in_bbox, terrain_point_left)
         terrain_point_right_z = getLocalMinZ(points_in_bbox, terrain_point_right)
 
-        # terrain_point_left_z = getLocalMinZ(points_in_bbox, terrain_point_left, new_point_on_left_edge[2])
-        # terrain_point_right_z = getLocalMinZ(points_in_bbox, terrain_point_right, new_point_on_right_edge[2])
-
-        if (abs(new_point_on_left_edge.z - terrain_point_left_z) <= 0.75 or abs(
-                new_point_on_right_edge.z - terrain_point_right_z) <= 0.75):
+        if (abs(new_point_on_left_edge.z - terrain_point_left_z) <= 1.25 or abs(
+                new_point_on_right_edge.z - terrain_point_right_z) <= 1.25):
             new_z = min(terrain_point_left_z, terrain_point_right_z)
             terrain_point_left[2] = new_z
             terrain_point_right[2] = new_z
@@ -267,36 +174,19 @@ def collect_result_zs(result):
     global path_points_with_z
     path_points_with_z.append(result)
 
+out_path = sys.argv[3]
+if not os.path.exists(out_path):
+    exit("Out file path does not exist!")
+in_file = sys.argv[2]
+D = int(sys.argv[1])/100.0 # gostota točk
+
 resulting_points = []
 path_points_with_z = []
 
 start_time = time.time()
 
 print("Loading LAS file ...")
-inFile = File('data/TM_463_105.las', mode='r')
-
-#data = inFile.points.tolist()
-
-# Grab a numpy dataset of our clustering dimensions:
-#dataset = np.vstack([inFile.X, inFile.Y, inFile.Z]).transpose()
-# Load only points in bbox
-
-
-# print("Building the KD Tree...")
-# # Build the KD Tree
-# tree = KDTree(dataset)
-#
-# print("Query")
-# neighbors = tree.query(dataset[100,], k = 5)
-#
-# print("Five nearest neighbors of point 100: ")
-# print(neighbors[1])
-# print("Distances: ")
-# print(neighbors[0])
-
-# all_nns = [[dataset[idx] for idx in nn_indices if idx != i] for i, nn_indices in enumerate(neighbors[1])]
-# for nns in all_nns:
-#     print(nns)
+inFile = File(in_file, mode='r')
 
 max_x = inFile.header.max[0] * 100
 max_y = inFile.header.max[1] * 100
@@ -306,7 +196,7 @@ min_y = inFile.header.min[1] * 100
 min_z = inFile.header.min[2] * 100
 
 debelina_mostu = 1
-D = 0.5 # gostota točk
+#D = 0.25 # gostota točk
 
 print("Loading shp file ...")
 with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
@@ -323,33 +213,24 @@ with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
             sirces = records[shape_i][6]
             sirvoz = records[shape_i][7]
             id = records[shape_i][0]
-            # if (id == 464618):
-            #     continue
             path_points = shape.points
 
             print()
-            print("to je most tipa: ", tipobj_ces)
+            print("type: ", tipobj_ces)
             print("bbox: ", shape.bbox)
             print("points: ", path_points)
             print("sirces: ", sirces)
             print("sirvoz: ", sirvoz)
-            print("i: ", id)
+            print("id: ", id)
 
             points_in_bbox = getPointsInBbox(shape.bbox)
-            writePointsToLasFile(points_in_bbox, "bbox_{}".format(id))
+            #writePointsToLasFile(points_in_bbox, "bbox_{}".format(id))
             #exit()
 
             cpu_count = mp.cpu_count()
             pool_zs = mp.Pool(cpu_count)
-
             for path_point_i in range(len(path_points)):
                 pool_zs.apply_async(getLocalMaxZ, (path_point_i, path_points[path_point_i][0], path_points[path_point_i][1], points_in_bbox, path_points[path_point_i]), callback=collect_result_zs)
-                #getLocalMaxZ(path_point_i, path_points[path_point_i][0], path_points[path_point_i][1], points_in_bbox, path_points[path_point_i])
-                # path_points_with_z.append((path_points[path_point_i][0],
-                #                            path_points[path_point_i][1],
-                #                            getLocalMaxZ(points_in_bbox, path_points[path_point_i])
-                #                            ))
-
             pool_zs.close()
             pool_zs.join()
 
@@ -357,17 +238,10 @@ with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
             path_points_with_z = [(x, y, z) for i, x, y, z in path_points_with_z]
 
             pool_segments = mp.Pool(cpu_count)
-
             for p0, p1 in zip(path_points_with_z[0:], path_points_with_z[1:]):
-                #data.append((p0, p1))
                 pool_segments.apply_async(calculateSegment, (p0,p1), callback=collect_result_segment)
-
-            #new_points_x = pool.starmap_async(calculateSegment, data)
-            #new_points_x = [pool.apply(calculateSegment, (p0, p1)) for p0, p1 in data]
             pool_segments.close()
             pool_segments.join()
-
-            #l = np.array(new_points_x[0]).transpose() * 100
 
             t = []
             for point_list in resulting_points:
@@ -377,8 +251,7 @@ with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
 
             print()
             print("writing to new_points_{}".format(id))
-            writePointsToLasFile(l, "new_points_{}".format(id))
-
+            writePointsToLasFile(l, "new_points_{}_{}".format(id, int(D*100)))
             print("--- it took %s seconds ---" % ((time.time() - start_time)))
             #exit()
             resulting_points = []
@@ -386,4 +259,3 @@ with shapefile.Reader("shapefiles/TN_CESTE_L.shp") as shp:
 
     print(shp)
     print("--- it took %s seconds ---" % (time.time() - start_time))
-
